@@ -490,14 +490,15 @@ frmttable, statmat(dmnt) varlabels ctitles("" "mean" "probp==1" "probp==0")
 H="Proxies"
 libname raw 'E:\data\hrs_public_2012\core';
 
-proc import datafile= "E:\data\hrs_public_2012\core\raw\H98PC_R.dta" out=h98pc_r replace; 
+proc import datafile="E:\data\hrs_public_2012\core\raw\H98PC_R.dta" out=h98pc_r replace;
 run;
 
 data core1998a;
 set h98pc_r;
 keep hhid pn f1389-f1460;
 run;
-data core1998;
+
+data core19998;
 set core1998a;
 core_year=1998;
 run;
@@ -550,8 +551,9 @@ run;
 
 proc export data=proxy outfile="E:\data\serious_ill\int_data\proxy.dta" replace; run;
 
-H="Proxy stata"
 
+H="Proxy stata"
+cd "E:\data\serious_ill\int_data"
 
 use proxy.dta, clear
 
@@ -610,14 +612,6 @@ save proxycog.dta, replace
 
 
 H="get pdem for all and export dataset"
-/*
-use "E:\data\hrs_cleaned\working\tics_9812.dta", clear
-merge 1:1 hhid pn core_year using  "E:\data\hrs_cleaned\core_00_to_12.dta", nogen
-merge 1:1 hhid pn prediction_year using  "E:\data\hrs_public_2012\dementia\pdem_withvarnames.dta", keepusing(prob) keep(match master) nogen
-merge 1:1 hhid pn core_year using "E:\data\hrs_public_2012\dementia\ADAMS\dementia_dx_adams_wave1_only.dta", nogen
-merge m:1 hhid  pn using "E:\data\hrs_cleaned\restricted_tracker_v2012.dta", keepusing(birth_date gender) keep(match master) nogen
-
-*/
 
 
 use "E:\data\hrs_cleaned\core_00_to_12.dta", clear
@@ -628,22 +622,9 @@ merge 1:1 hhid pn core_year using "E:\data\hrs_public_2012\dementia\ADAMS\dement
 merge m:1 hhid  pn using "E:\data\hrs_cleaned\restricted_tracker_v2012.dta", keepusing(birth_date gender) keep(match master) nogen
 merge 1:1 hhid pn core_year using "E:\data\serious_ill\int_data\proxycog.dta", nogen keep(match master) keepusing(iq*)
 
+replace female=gender-1 if !missing(gender)
 
-
-gen twrtot=tics_tot-mstot
-sum mstot
-gen d_mstot=mstot<=r(mean)-1.5*r(sd)
-sum twrto
-gen d_twrt=twrtot<=r(mean)-1.5*r(sd)
-sum tics_tot
-gen d_tics=tics_tot<=r(mean)-1.5*r(sd)
-
-*keep if prob_!=.
-gen dem_likely=prob>.5
-
-
- 
-gen age=floor((c_ivw_date-birth_date)/365.25)+1
+gen age=floor((c_ivw_date-birth_date)/365.25)
 gen age_cat=1
 replace age_cat=2 if age>=70
 replace age_cat=3 if age>=75
@@ -660,21 +641,9 @@ gen ed_gt_hs=educ>2
 
 
 local cogvars imrc dlrc ser7 bwc20 mo dy yr dw scis cact pres vp adl_index_core ///
-iadl_ind_core iqtotal proxy_core 
-/*
-foreach x of local cogvars {
-gen miss`x'=`x'==.
-gen prev`x'=.
-forvalues i= 1998(2)2012 {
-gen `x'`i'=`x' if core_year==`i'
-replace `x'`i'=0 if `x'`i'==.
-by id, sort: egen `x'1=max(`x'`i')
-replace prev`x'=`x'`i' if core_year==`i'+2
-replace prev`x'=`x'1 if core_year==`i'+2
-drop `x'`i' `x'1
-}
-}
-*/
+iadl_ind_core iqmean proxy_core 
+
+
 foreach x of local cogvars {
 sort id core_year
 by id: gen prev`x'=`x'[_n-1]
@@ -685,51 +654,25 @@ replace prev`x'=0 if prev`x'==.
 }
 
 
-
-
-*drop if proxy==1
-
-gen age_cat0=age_cat<3
 gen dates=mo+dy+yr+dw
-gen missdates=dates==.
 by id: gen prevdates=dates[_n-1]
+gen missdates=prevdates==.
 gen ch_dates=ch_mo+ch_yr+ch_dy+ch_dw
 replace prevdates=0 if prevdates==.
 replace ch_dates=0 if ch_dates==.
 
+/*note-most missing variables excluded due to collinearity*/
 local regvars age_cat3 age_cat4 age_cat5 age_cat6 ed_hs_only ed_gt_hs female ///
 adl_index_core iadl_ind_core ch_adl_index_core ch_iadl_ind_core dates bwc20 ///
 ser7 sci cact pres imrc dlrc ch_dates ch_bwc20 ch_ser7 ch_sci ch_cact ch_pres ///
-ch_imrc ch_dlrc memory_hrs missbwc20 missser7 misssci misscact misspres missimrc ///
-missdlrc missdates
+ch_imrc ch_dlrc missbwc20 missser7 misssci misscact misspres missimrc ///
+missdlrc missdates missadl missiadl
 
 local proxyvars age_cat3 age_cat4 age_cat5 age_cat6 ed_hs_only ed_gt_hs female ///
-adl_index_core iadl_ind_core ch_adl_index_core ch_iadl_ind_core iqtotal ch_iqtotal ///
+adl_index_core iadl_ind_core ch_adl_index_core ch_iadl_ind_core iqmean ch_iqmean ///
 ch_proxy_core prevdates prevser7 prevpres previmrc prevdlrc ///
-missbwc20 missser7 misssci misscact misspres missimrc ///
-missdlrc missdates
-
-foreach x of local proxyvars {
-	sum `x' if proxy==1
-}
-
-foreach x in `regvars' {
-	*by id: replace `x'=. if _n==1
-}
-
-ologit dx `regvars' if proxy==0
-
-predict p2self
-
-ologit dx `proxyvars' if proxy==1
-predict p2 if proxy==1
-replace p2=p2self if proxy==0
-
-
-foreach x of local regvars {
-di "`x'"
-*ttest `x' if wrong==1, by(churd)
-}
+missdates missser7 misssci misscact misspres missimrc ///
+missdlrc missdates missadl missiadl
 
 
 oprobit dx `regvars' if proxy==0
@@ -738,14 +681,11 @@ oprobit dx `proxyvars' if proxy==1
 predict pdem if proxy==1
 replace pdem=pself if proxy==0
 
-gen lp=pdem>.5 & !missing(pdem)
-gen dem_l=prob>.5 & !missing(prob)
-gen c1=lp==deme if deme!=.
-gen c2=dem_l==deme if deme!=.
-
+preserve
 keep id proxy pdem prob_dem dx_adams core_year
 rename prob_dem prob_hurd
 save E:\data\hrs_public_2012\dementia\pdem_withvarnames_ebl, replace
+
 
 H="***********************************"
 
